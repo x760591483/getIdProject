@@ -8,7 +8,7 @@
 
 static sysdata sdata;
 
-
+extern const char *INFdata[];
 
 int evhtp_send_data(evhtp_request_t *req,const char *data,int datalen)
 {
@@ -95,13 +95,24 @@ int jsonmake(idlist *iddata,char **data)
     if(iddata->type <0)
     {
         json_object_object_add(my_object, "state", json_object_new_int(iddata->type));
+        if(iddata->type <0 && iddata->type > (-1 * INFDATANUM))
+        {
+            int temi = -1 * iddata->type;
+            json_object_object_add(my_object, "inf", json_object_new_string(INFdata[temi]));
+
+        }
+        else
+        {
+            json_object_object_add(my_object, "inf", json_object_new_string(INFdata[INFDATANUM-1]));
+
+        }
     }
     else
     {
         json_object_object_add(my_object, "state", json_object_new_int(0));
         idmake(my_array,iddata);
+    json_object_object_add(my_object, "inf", json_object_new_string(INFdata[0]));
     }
-    json_object_object_add(my_object, "inf", json_object_new_string("test"));
     json_object_object_add(my_object, "data", my_array);
     
     char *outdat = json_object_to_json_string(my_object);
@@ -114,16 +125,68 @@ int jsonmake(idlist *iddata,char **data)
 
 void id_get_pr(evhtp_request_t *req, void *arg ) 
 {
+    int ret =0;
     const char * type = evhtp_kv_find(req->uri->query,"type");
+    int ntype =0;
     const char * num = evhtp_kv_find(req->uri->query,"num");
+    int nnum =0;
     evhtp_kv_t * ctheader = 0;
     evhtp_kv_t * clheader = 0;
+
+    idlist idata;
+    memset(&idata,0,sizeof(idata));
+//    keepGetData(sdata.kdata,0,5,&idata);
+    char *outdat=NULL;
+//    jsonmake(&idata,&oudat);
+//    printf("out %s\n",oudat);
+
     if(!type)
     {
-
+        idata.type = -1;
+        jsonmake(&idata,&outdat);
+        goto SEND;
     }
-    char buf[64]="abcdefghijklmnopqrstuvwyz";
-    evhtp_send_data(req,buf,strlen(buf));
+    else
+    {
+        ntype = atoi(type);
+        if(ntype <= 0 || ntype >=KEEPMAXNUM)
+        {
+            idata.type = -2;
+            jsonmake(&idata,&outdat);
+            goto SEND;
+        }
+    }
+    if(!num)
+    {
+        nnum =1;
+    }
+    else
+    {
+        nnum = atoi(num);
+        if(nnum <=0 || nnum >KEEPONEMAX)
+        {
+            idata.type = -3;
+            jsonmake(&idata,&outdat);
+            goto SEND;
+        }
+    }
+
+    idata.type = ntype;
+    ret = keepGetData(sdata.kdata,ntype,nnum,&idata);
+    if(ret !=0)
+    {
+        idata.type = -4;
+        jsonmake(&idata,&outdat);
+        goto SEND;
+    }
+
+    jsonmake(&idata,&outdat);
+
+SEND:    
+    evhtp_send_data(req,outdat,strlen(outdat));
+
+    free(outdat);
+    outdat = NULL;
     printf("id_get_pr end\n");  
 }
 
@@ -253,12 +316,21 @@ int main(int argc, char *argv[])
         printf("keepFileInit is err %d\n",ret);
         return -2;
     }
+
     idlist idata;
     memset(&idata,0,sizeof(idata));
     keepGetData(sdata.kdata,0,5,&idata);
-    char *oudat=NULL;
-    jsonmake(&idata,&oudat);
-    printf("out %s\n",oudat);
+    char *outdat=NULL;
+    jsonmake(&idata,&outdat);
+    printf("out %s\n",outdat);
+    free(outdat);
+    outdat = NULL;
+    idata.type=-2;
+    jsonmake(&idata,&outdat);
+    printf("out %s\n",outdat);
+    outdat = NULL;
+    idata.type=-2;
+    
 
     //创建evhtp接口  用于接收HTTP请求
     ret = evhtpSet(&sdata);

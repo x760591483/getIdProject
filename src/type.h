@@ -8,6 +8,18 @@
 #define KEEPMAXNUM 32
 #define KEEPALLMAX 65535
 #define KEEPONEMAX 200
+#define INFDATANUM 5
+extern const char *INFdata[INFDATANUM]=
+{
+    "ok",
+    "Http not have type data",
+    "Http type is not right",
+    "Http num is not rigth",
+    "unknow err happen"
+
+};
+
+
 typedef struct IDLIST
 {
     time_t tdata;
@@ -25,7 +37,6 @@ typedef struct KEEPDATA
     int addData[KEEPMAXNUM]; 
 
 }keepdata;
-
 typedef struct SYSDATA
 {
     evbase_t *evbase;
