@@ -2,10 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include "type.h"
 #include "json/json.h"
-#include <unistd.h>
-
 static sysdata sdata;
 
 extern const char *INFdata[];
@@ -21,8 +23,8 @@ int evhtp_send_data(evhtp_request_t *req,const char *data,int datalen)
     char buflen[32]={0};
     snprintf(buflen,32,"%d",datalen);
 
-printf("buf %s %d\n",data,(int)strlen(data));
-    
+    //printf("buf %s %d\n",data,(int)strlen(data));
+
     ctheader = evhtp_header_new("Content-Type","application/json; charset=utf-8", 1, 1);
     clheader = evhtp_header_new("Content-Length",buflen, 1,1);
     evhtp_headers_add_header (req->headers_out,ctheader);
@@ -31,8 +33,6 @@ printf("buf %s %d\n",data,(int)strlen(data));
     evbuffer_add(req->buffer_out, data, strlen(data));
     evhtp_send_reply_body(req, req->buffer_out);
     evhtp_send_reply_end(req);
-    printf("id_get_pr end\n");
-    
 
     return 0;
 }
@@ -70,7 +70,7 @@ int idmake(void *jdat,idlist *idat)
             {
                 ++last;
             }
-        
+
         }
         value = (ttem <<32) + (sta<<16) + (type<<8) + last;
         memset(valuestr,0,sizeof(valuestr));
@@ -111,16 +111,16 @@ int jsonmake(idlist *iddata,char **data)
     {
         json_object_object_add(my_object, "state", json_object_new_int(0));
         idmake(my_array,iddata);
-    json_object_object_add(my_object, "inf", json_object_new_string(INFdata[0]));
+        json_object_object_add(my_object, "inf", json_object_new_string(INFdata[0]));
     }
     json_object_object_add(my_object, "data", my_array);
-    
     char *outdat = json_object_to_json_string(my_object);
     int outdatlen = strlen(outdat);
-      *data = (char*)malloc(outdatlen +1);
-      memset(*data,0,outdatlen+1);
-      memcpy(*data,outdat,outdatlen);
+    *data = (char*)malloc(outdatlen +1);
+    memset(*data,0,outdatlen+1);
+    memcpy(*data,outdat,outdatlen);
     json_object_put(my_object);
+    return 0;
 }
 
 void id_get_pr(evhtp_request_t *req, void *arg ) 
@@ -135,10 +135,10 @@ void id_get_pr(evhtp_request_t *req, void *arg )
 
     idlist idata;
     memset(&idata,0,sizeof(idata));
-//    keepGetData(sdata.kdata,0,5,&idata);
+    //    keepGetData(sdata.kdata,0,5,&idata);
     char *outdat=NULL;
-//    jsonmake(&idata,&oudat);
-//    printf("out %s\n",oudat);
+    //    jsonmake(&idata,&oudat);
+    //    printf("out %s\n",oudat);
 
     if(!type)
     {
@@ -183,11 +183,14 @@ void id_get_pr(evhtp_request_t *req, void *arg )
     jsonmake(&idata,&outdat);
 
 SEND:    
-    evhtp_send_data(req,outdat,strlen(outdat));
-
+    ret = evhtp_send_data(req,outdat,strlen(outdat));
+    if(ret != 0)
+    {
+        logLog(sdata.ld,LOGERR,"send inf %d",ret); 
+    }
+    logLog(sdata.ld,LOGINF,"send inf:\n %s",outdat); 
     free(outdat);
     outdat = NULL;
-    printf("id_get_pr end\n");  
 }
 
 int evhtpSet(sysdata *sdata)
@@ -243,18 +246,18 @@ keepdata* keepInit(int type)
 }
 int keepUpdatTime(keepdata *kdata)
 {
-        if(kdata == NULL)
-        {
-            return -1;
-        }
-        time_t tem = time(NULL);
-        if(tem == (kdata->tdata + kdata->trange))
-        {
-            return 0;
-        }
-        kdata->tdata = tem - kdata->trange;
-        memset(kdata->addData,0,sizeof(kdata->addData));
-        return 1;//表示更新过
+    if(kdata == NULL)
+    {
+        return -1;
+    }
+    time_t tem = time(NULL);
+    if(tem == (kdata->tdata + kdata->trange))
+    {
+        return 0;
+    }
+    kdata->tdata = tem - kdata->trange;
+    memset(kdata->addData,0,sizeof(kdata->addData));
+    return 1;//表示更新过
 }
 int keepGetData(keepdata *kdata,int type,int num,idlist *out)
 {
@@ -280,20 +283,44 @@ int keepGetData(keepdata *kdata,int type,int num,idlist *out)
 
 int main(int argc, char *argv[])
 {
+    int ret=0;
     memset(&sdata,0,sizeof(sysdata));
-   // time_t ti = time(NULL);
-   // printf("ti %ld\n",ti);
-   // printf("time_t %d\n",(int)sizeof(time_t));
-   // printf("int %d longlong %d\n",(int)sizeof(int),(int)sizeof(long long));
-    
+    char *confwhere = NULL;//记录指定配置文件信息
+    // time_t ti = time(NULL);
+    // printf("ti %ld\n",ti);
+    // printf("time_t %d\n",(int)sizeof(time_t));
+    // printf("int %d longlong %d\n",(int)sizeof(int),(int)sizeof(long long));
+    ret =1;
+    pid_t fd;
+    if(argc >2)
+    {
+        printf("%s\n",argv[1]); 
+        if(strncmp(argv[ret],"-c",2)==0)
+        {
+            confwhere = argv[ret + 1];
+        }
+        else
+        {
+            printf("%s is no avail\n",argv[ret]);
+            return -1;
 
-    sdata.fdata =FileLoad("./test.conf");    
+        }
+    }
+    if(confwhere)
+    {
+        sdata.fdata =FileLoad(confwhere);    
+
+    }
+    else
+    {
+        sdata.fdata =FileLoad("./idget.conf");    
+    }
     if(sdata.fdata==NULL)
     {
         printf("loadFile is NULL\n");
         return -1;
-   }
-    int ret = FileRead(sdata.fdata);
+    }
+    ret = FileRead(sdata.fdata);
     if(ret <0)
     {
         printf("FileRead is ERR %d\n",ret);
@@ -303,49 +330,84 @@ int main(int argc, char *argv[])
     char logfile[32]={0};
     int loglen=0;
 
-    sdata.ld = logInit("log.log",10);
+    FileFindOneData(sdata.fdata,"IDMAIN","log",logfile,&loglen);
+    if(loglen>0)
+    {
+        sdata.ld = logInit(logfile,10);
+        printf("log file is %s\n",logfile);
+    }
+    else
+    {
+        sdata.ld = logInit("log.log",10);
+        printf("log file is lpg.log\n");
+    }
     if(sdata.ld == NULL)
     {
         printf("logInit is NULL\n");
         return -1;
     }
-    
-    sdata.kdata = keepInit(1);
-    if(sdata.kdata==NULL)
+
+    fd = fork();
+    if(fd ==0)
     {
-        printf("keepFileInit is err %d\n",ret);
-        return -2;
+        pid_t pid = setsid();
+        if(pid == -1)
+        {
+            logLog(sdata.ld,LOGERR,"setsid is err");
+            return -1;
+        }
+        int fdnull =open("/dev/null",O_RDWR);//将读写文件描述符 切到 系统null 即关闭程序的 0 1 描述符
+        if(fdnull <3)
+        {
+            logLog(sdata.ld,LOGERR,"main open() err %d",fdnull);
+
+        }
+        dup2(fdnull,0);
+        dup2(fdnull,1);
+
+        sdata.kdata = keepInit(1);
+        if(sdata.kdata==NULL)
+        {
+            logLog(sdata.ld,LOGERR,"keepInit is NULL"); 
+            return -2;
+        }
+        //创建evhtp接口  用于接收HTTP请求
+        ret = evhtpSet(&sdata);
+        if(ret !=0)
+        {
+            logLog(sdata.ld,LOGERR,"evhtpSet is err %d",ret); 
+            return -1;
+        }
+        event_base_loop(sdata.evbase, 0);
+        logLog(sdata.ld,LOGWAR,"event_base_loop is out"); 
+        evhtp_unbind_socket(sdata.htp);
+        evhtp_free(sdata.htp);
+        event_base_free(sdata.evbase);
+        logLog(sdata.ld,LOGINF,"idget is end"); 
+
+    }
+    else
+    {
+        return 0;
     }
 
-    idlist idata;
-    memset(&idata,0,sizeof(idata));
-    keepGetData(sdata.kdata,0,5,&idata);
-    char *outdat=NULL;
-    jsonmake(&idata,&outdat);
-    printf("out %s\n",outdat);
-    free(outdat);
-    outdat = NULL;
-    idata.type=-2;
-    jsonmake(&idata,&outdat);
-    printf("out %s\n",outdat);
-    outdat = NULL;
-    idata.type=-2;
-    
-
-    //创建evhtp接口  用于接收HTTP请求
-    ret = evhtpSet(&sdata);
-    if(ret !=0)
-    {
-        printf("evhtpSet is err %d\n",ret);
-        return -1;
-    }
-    printf("loop is pre\n");
-   event_base_loop(sdata.evbase, 0); 
-   printf("loop is next\n");
-   evhtp_unbind_socket(sdata.htp);
-   evhtp_free(sdata.htp);
-   event_base_free(sdata.evbase);
-    printf("project stop\n");
 
     return 0;
 }
+
+/*
+   idlist idata;
+   memset(&idata,0,sizeof(idata));
+   keepGetData(sdata.kdata,0,5,&idata);
+   char *outdat=NULL;
+   jsonmake(&idata,&outdat);
+   printf("out %s\n",outdat);
+   free(outdat);
+   outdat = NULL;
+   idata.type=-2;
+   jsonmake(&idata,&outdat);
+   printf("out %s\n",outdat);
+   outdat = NULL;
+   idata.type=-2;
+   */
+
