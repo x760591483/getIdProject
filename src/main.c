@@ -8,6 +8,9 @@
 #include <fcntl.h>
 #include "type.h"
 #include "json/json.h"
+
+#define PIDFILE "idget.pid"
+
 static sysdata sdata;
 
 extern const char *INFdata[];
@@ -199,11 +202,37 @@ int evhtpSet(sysdata *sdata)
     {
         return -1;
     }
+    int len=0;
+    int port = 8000;
+    char portdata[32]={0};
+    char uridata[32]={0};
     sdata->evbase = event_base_new();
     sdata->htp = evhtp_new(sdata->evbase, NULL);
+    FileFindOneData(sdata->fdata,"IDMAIN","port",portdata,&len);
+    if(len>0)
+    {
+        port = atoi(portdata);
+        if(port<1)
+        {
+            port = 8000;
+        }
+    }
+    logLog(sdata->ld,LOGINF,"port is %d",port);
     evhtp_use_threads(sdata->htp, NULL, 2, NULL); 
-    evhtp_bind_socket(sdata->htp,"0.0.0.0" ,8000 , 1024);
-    evhtp_set_cb(sdata->htp, "/test", id_get_pr, NULL);
+    evhtp_bind_socket(sdata->htp,"0.0.0.0" ,port , 1024);
+
+    FileFindOneData(sdata->fdata,"IDMAIN","uri",uridata,&len);
+    if(len>0)
+    {
+        logLog(sdata->ld,LOGINF,"uri is %s",uridata);
+        evhtp_set_cb(sdata->htp,uridata, id_get_pr, NULL);
+
+    }
+    else
+    {
+        logLog(sdata->ld,LOGINF,"uri is /getid");
+        evhtp_set_cb(sdata->htp, "/getid", id_get_pr, NULL);
+    }
 
     return 0;
 }
@@ -280,6 +309,24 @@ int keepGetData(keepdata *kdata,int type,int num,idlist *out)
 
     return 0;
 }
+int writepid(const char *path)
+{
+    if(path ==NULL)
+    {
+        return -1;
+    }
+    pid_t pid = getpid();
+    FILE *fd = fopen(path,"w");
+    if(fd==NULL)
+    {
+        return -2;
+    }
+    fprintf(fd,"%d",(int)pid);
+    fclose(fd);
+    fd=NULL;
+    return 0;
+
+}
 
 int main(int argc, char *argv[])
 {
@@ -290,11 +337,11 @@ int main(int argc, char *argv[])
     // printf("ti %ld\n",ti);
     // printf("time_t %d\n",(int)sizeof(time_t));
     // printf("int %d longlong %d\n",(int)sizeof(int),(int)sizeof(long long));
+
     ret =1;
     pid_t fd;
     if(argc >2)
     {
-        printf("%s\n",argv[1]); 
         if(strncmp(argv[ret],"-c",2)==0)
         {
             confwhere = argv[ret + 1];
@@ -378,6 +425,25 @@ int main(int argc, char *argv[])
             logLog(sdata.ld,LOGERR,"evhtpSet is err %d",ret); 
             return -1;
         }
+        char pidpath[32]={0};
+
+        FileFindOneData(sdata.fdata,"IDMAIN","pidpath",pidpath,&ret);
+        if(ret>0)
+        {
+            logLog(sdata.ld,LOGINF,"pidpath is %s",pidpath);
+            ret = writepid(pidpath);
+        }
+        else
+        {
+            logLog(sdata.ld,LOGINF,"pidpath is %s",PIDFILE);
+            ret = writepid(PIDFILE);
+        }
+        if(ret !=0)
+        {
+            logLog(sdata.ld,LOGERR,"writepid is err %d",ret);
+        }
+
+
         event_base_loop(sdata.evbase, 0);
         logLog(sdata.ld,LOGWAR,"event_base_loop is out"); 
         evhtp_unbind_socket(sdata.htp);
