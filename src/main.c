@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -328,9 +329,44 @@ int writepid(const char *path)
 
 }
 
+int tostop(const char* path)
+{
+    if(path ==NULL)
+    {
+        return -1;
+    }
+    FILE *fd = fopen(path,"r");
+    if(fd==NULL)
+    {
+        return -2;
+    }
+    char *cret=NULL;
+    int ret=0;
+    char iddata[32]={0};
+    cret = fgets(iddata,sizeof(iddata)-1,fd);
+        fclose(fd);
+        fd =NULL;
+    if(cret ==NULL)
+    {
+        return -3;
+    }
+    int idnum = atoi(iddata);
+    if(idnum<1)
+    {
+        return -4;
+    }
+    ret = kill((pid_t)idnum,9);
+    if(ret ==0)
+    {
+        remove(path);
+    }
+    return ret;
+}
+
 int main(int argc, char *argv[])
 {
     int ret=0;
+    int isstop = 0;//标记是否结束
     memset(&sdata,0,sizeof(sysdata));
     char *confwhere = NULL;//记录指定配置文件信息
     // time_t ti = time(NULL);
@@ -342,15 +378,26 @@ int main(int argc, char *argv[])
     pid_t fd;
     if(argc >2)
     {
-        if(strncmp(argv[ret],"-c",2)==0)
+        while(ret <argc)
         {
-            confwhere = argv[ret + 1];
-        }
-        else
-        {
+            if(strncmp(argv[ret],"-c",2)==0)
+            {
+                confwhere = argv[ret + 1];
+                ret +=2;
+                continue;
+            }
+            else if(strncmp(argv[ret],"-s",2)==0)
+            {
+                if(strncmp(argv[ret+1],"stop",4)==0)
+                {
+                    isstop =1;
+                }
+                ret +=2;
+                continue;
+            }
             printf("%s is no avail\n",argv[ret]);
             return -1;
-
+        
         }
     }
     if(confwhere)
@@ -373,10 +420,26 @@ int main(int argc, char *argv[])
         printf("FileRead is ERR %d\n",ret);
         return -1;
     }
-
-    char logfile[32]={0};
+    char logfile[64]={0};
     int loglen=0;
+    if(isstop==1)
+    {
+        FileFindOneData(sdata.fdata,"IDMAIN","pidpath",logfile,&ret);
+        if(ret>0)
+        {
+            ret = tostop(logfile);
+        }
+        else
+        {
+            ret = tostop(PIDFILE);
+        }
+        if(ret !=0)
+        {
+            printf("stop err %d\n",ret);
+        }
+        return 0;
 
+    }
     FileFindOneData(sdata.fdata,"IDMAIN","log",logfile,&loglen);
     if(loglen>0)
     {
