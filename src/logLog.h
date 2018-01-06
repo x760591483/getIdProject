@@ -10,6 +10,7 @@ typedef struct LOGDATA
     FILE *fg;
     char *filename;
     int maxsize;
+    int size;
 
 }logdata;
 
